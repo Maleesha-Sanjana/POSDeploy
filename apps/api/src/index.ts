@@ -11,6 +11,8 @@ import { scriptRoutes } from './routes/scripts.routes.js';
 import { deployRoutes } from './routes/deploy.routes.js';
 import { schemaRoutes } from './routes/schema.routes.js';
 import { settingsRoutes } from './routes/settings.routes.js';
+import { instructionsRoutes } from './routes/instructions.routes.js';
+import { metadataRoutes } from './routes/metadata.routes.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -33,6 +35,8 @@ async function main() {
   await app.register(deployRoutes);
   await app.register(schemaRoutes);
   await app.register(settingsRoutes);
+  await app.register(instructionsRoutes);
+  await app.register(metadataRoutes);
 
   app.get('/api/health', async () => ({ status: 'ok', service: 'POSDeploy API' }));
 

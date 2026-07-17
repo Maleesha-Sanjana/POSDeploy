@@ -4,6 +4,7 @@ const navItems = [
   { to: '/', label: 'Dashboard', end: true },
   { to: '/pos-password', label: 'POS Password Setting' },
   { to: '/pos', label: 'POS Machines' },
+  { to: '/paste', label: 'Paste Instructions' },
   { to: '/schema', label: 'Schema Builder' },
   { to: '/scripts', label: 'Scripts' },
   { to: '/deploy', label: 'Deploy' },

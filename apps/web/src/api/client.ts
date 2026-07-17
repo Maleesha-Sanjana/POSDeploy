@@ -9,20 +9,38 @@ import type {
   SchemaDeployResponse,
   SchemaTable,
   Script,
+  InstructionParseResult,
+  MetadataTablesResponse,
+  TableSchemaResponse,
 } from '../types';
+
+export const DEFAULT_DATABASE = 'POS_SOLUTION';
 
 const BASE = '/api';
 
 async function request<T>(url: string, options?: RequestInit): Promise<T> {
+  const hasBody = options?.body !== undefined && options?.body !== null && options?.body !== '';
+  const headers: Record<string, string> = {};
+
+  if (hasBody) {
+    headers['Content-Type'] = 'application/json';
+  }
+
   const res = await fetch(`${BASE}${url}`, {
-    headers: { 'Content-Type': 'application/json', ...options?.headers },
     ...options,
+    headers: { ...headers, ...(options?.headers as Record<string, string> | undefined) },
   });
 
   const data = await res.json().catch(() => ({}));
 
   if (!res.ok) {
-    throw new Error(data.error ?? `Request failed (${res.status})`);
+    const message =
+      typeof data.error === 'string'
+        ? data.error
+        : typeof data.message === 'string'
+          ? data.message
+          : `Request failed (${res.status})`;
+    throw new Error(message);
   }
 
   return data as T;
@@ -85,4 +103,23 @@ export const api = {
   }) => request<SchemaDeployResponse>('/schema/columns', { method: 'POST', body: JSON.stringify(body) }),
   deleteSchemaTable: (id: number) =>
     request<{ success: boolean }>(`/schema/tables/${id}`, { method: 'DELETE' }),
+
+  parseInstructions: (body: { text: string; table_name: string; database?: string; pos_id?: number }) =>
+    request<InstructionParseResult>('/instructions/parse', { method: 'POST', body: JSON.stringify(body) }),
+  deployInstructions: (body: {
+    text: string;
+    table_name: string;
+    database?: string;
+    pos_id?: number;
+    pos_ids: number[] | 'all';
+  }) => request<InstructionParseResult>('/instructions/deploy', { method: 'POST', body: JSON.stringify(body) }),
+
+  getTablesFromPos: (database: string, posId?: number) =>
+    request<MetadataTablesResponse>(
+      `/metadata/tables?database=${encodeURIComponent(database)}${posId ? `&pos_id=${posId}` : ''}`
+    ),
+  getTableSchemaFromPos: (database: string, table: string, posId?: number) =>
+    request<TableSchemaResponse>(
+      `/metadata/table-schema?database=${encodeURIComponent(database)}&table=${encodeURIComponent(table)}${posId ? `&pos_id=${posId}` : ''}`
+    ),
 };

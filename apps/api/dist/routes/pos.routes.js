@@ -1,5 +1,5 @@
 import { getDb, toPublicPos } from '../db/index.js';
-import { getPosCredentials, requirePosCredentials } from '../services/settings.service.js';
+import { isPosPasswordConfigured, requirePosCredentials } from '../services/settings.service.js';
 import { testSqlConnection } from '../services/mssql.service.js';
 export async function posRoutes(app) {
     app.get('/api/pos', async () => {
@@ -7,9 +7,7 @@ export async function posRoutes(app) {
         return rows.map((row) => toPublicPos(row));
     });
     app.get('/api/pos/can-add', async () => {
-        const creds = getPosCredentials();
-        const ready = Boolean(creds?.database_name && creds?.username && creds?.password);
-        return { ready };
+        return { ready: isPosPasswordConfigured() };
     });
     app.get('/api/pos/:id', async (req, reply) => {
         const row = getDb().prepare('SELECT * FROM pos_machines WHERE id = ?').get(Number(req.params.id));
@@ -99,9 +97,12 @@ export async function posRoutes(app) {
     });
     app.delete('/api/pos/:id', async (req, reply) => {
         const id = Number(req.params.id);
-        const result = getDb().prepare('DELETE FROM pos_machines WHERE id = ?').run(id);
-        if (result.changes === 0)
+        const existing = getDb().prepare('SELECT id FROM pos_machines WHERE id = ?').get(id);
+        if (!existing)
             return reply.status(404).send({ error: 'POS machine not found' });
+        // Remove related deploy results first (FK constraint)
+        getDb().prepare('DELETE FROM deploy_results WHERE pos_id = ?').run(id);
+        getDb().prepare('DELETE FROM pos_machines WHERE id = ?').run(id);
         return { success: true };
     });
     app.post('/api/pos/:id/test', async (req, reply) => {

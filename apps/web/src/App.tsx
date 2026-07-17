@@ -3,6 +3,7 @@ import { Layout } from './components/Layout';
 import { DashboardPage } from './pages/DashboardPage';
 import { DeployPage } from './pages/DeployPage';
 import { HistoryPage } from './pages/HistoryPage';
+import { PasteInstructionsPage } from './pages/PasteInstructionsPage';
 import { PosPasswordPage } from './pages/PosPasswordPage';
 import { PosPage } from './pages/PosPage';
 import { SchemaPage } from './pages/SchemaPage';
@@ -16,6 +17,7 @@ export function App() {
           <Route index element={<DashboardPage />} />
           <Route path="pos-password" element={<PosPasswordPage />} />
           <Route path="pos" element={<PosPage />} />
+          <Route path="paste" element={<PasteInstructionsPage />} />
           <Route path="schema" element={<SchemaPage />} />
           <Route path="scripts" element={<ScriptsPage />} />
           <Route path="deploy" element={<DeployPage />} />

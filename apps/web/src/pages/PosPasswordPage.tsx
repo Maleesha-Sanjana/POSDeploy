@@ -21,7 +21,7 @@ export function PosPasswordPage() {
     api.getPosCredentials()
       .then((data) => {
         setSettings(data);
-        setDatabaseName(data.database_name || DEFAULT_DATABASE_NAME);
+        setDatabaseName(DEFAULT_DATABASE_NAME);
         setUsername(data.username || 'sa');
       })
       .catch((e) => setError(e.message))
@@ -111,7 +111,7 @@ export function PosPasswordPage() {
             <div className="space-y-3 text-sm">
               <div>
                 <span className="text-slate-500">Database:</span>
-                <p className="font-medium">{settings.database_name || DEFAULT_DATABASE_NAME}</p>
+                <p className="font-medium">{DEFAULT_DATABASE_NAME}</p>
               </div>
               <div>
                 <span className="text-slate-500">Username:</span>

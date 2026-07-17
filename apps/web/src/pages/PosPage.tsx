@@ -22,7 +22,8 @@ export function PosPage() {
   const [testingId, setTestingId] = useState<number | null>(null);
   const [testResult, setTestResult] = useState<{ id: number; message: string; success: boolean } | null>(null);
   const [saving, setSaving] = useState(false);
-  const [passwordReady, setPasswordReady] = useState<boolean | null>(null);
+  const [deletingId, setDeletingId] = useState<number | null>(null);
+  const [passwordReady, setPasswordReady] = useState(false);
 
   const load = () => {
     setLoading(true);
@@ -45,6 +46,7 @@ export function PosPage() {
   };
 
   const openEdit = (pos: PosMachine) => {
+    if (!passwordReady) return;
     setEditId(pos.id);
     setDeviceName(pos.name);
     setModalOpen(true);
@@ -52,6 +54,7 @@ export function PosPage() {
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!passwordReady) return;
     setSaving(true);
     setError('');
 
@@ -72,15 +75,20 @@ export function PosPage() {
 
   const handleDelete = async (id: number, name: string) => {
     if (!confirm(`Delete POS machine "${name}"?`)) return;
+    setDeletingId(id);
+    setError('');
     try {
       await api.deletePos(id);
       load();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Delete failed');
+    } finally {
+      setDeletingId(null);
     }
   };
 
   const handleTest = async (id: number) => {
+    if (!passwordReady) return;
     setTestingId(id);
     setTestResult(null);
     try {
@@ -110,18 +118,21 @@ export function PosPage() {
         }
       />
 
-      {passwordReady === false && (
-        <div className="mb-4">
-          <Alert type="error" message="POS password is not set. You must configure it before adding POS machines." />
-          <Link to="/pos-password" className="inline-block mt-2 text-sm text-brand-600 hover:underline font-medium">
-            Go to POS Password Setting →
+      {!passwordReady && !loading && (
+        <div className="mb-6 rounded-xl border border-amber-200 bg-amber-50 p-6">
+          <h3 className="font-semibold text-amber-900 mb-2">POS Password Required</h3>
+          <p className="text-sm text-amber-800 mb-4">
+            Adding or editing POS machines is locked until you set the POS SQL password. You can still delete existing entries below.
+          </p>
+          <Link to="/pos-password">
+            <Button>Go to POS Password Setting</Button>
           </Link>
         </div>
       )}
 
       {error && <div className="mb-4"><Alert type="error" message={error} /></div>}
 
-      {testResult && (
+      {testResult && passwordReady && (
         <div className="mb-4">
           <Alert type={testResult.success ? 'success' : 'error'} message={testResult.message} />
         </div>
@@ -134,7 +145,7 @@ export function PosPage() {
           <div className="p-8 text-center text-slate-500">
             {passwordReady
               ? 'No POS machines yet. Click "+ Add POS" and enter a Device Name like POS1.'
-              : 'Set the POS password first, then add POS machines here.'}
+              : 'Set the POS password first to add POS machines.'}
           </div>
         ) : (
           <div className="overflow-x-auto">
@@ -158,12 +169,21 @@ export function PosPage() {
                         size="sm"
                         variant="secondary"
                         onClick={() => handleTest(pos.id)}
-                        disabled={testingId === pos.id}
+                        disabled={testingId === pos.id || !passwordReady}
                       >
                         {testingId === pos.id ? 'Testing...' : 'Test'}
                       </Button>
-                      <Button size="sm" variant="ghost" onClick={() => openEdit(pos)}>Edit</Button>
-                      <Button size="sm" variant="danger" onClick={() => handleDelete(pos.id, pos.name)}>Delete</Button>
+                      <Button size="sm" variant="ghost" onClick={() => openEdit(pos)} disabled={!passwordReady}>
+                        Edit
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="danger"
+                        onClick={() => handleDelete(pos.id, pos.name)}
+                        disabled={deletingId === pos.id}
+                      >
+                        {deletingId === pos.id ? 'Deleting...' : 'Delete'}
+                      </Button>
                     </td>
                   </tr>
                 ))}
@@ -173,7 +193,7 @@ export function PosPage() {
         )}
       </Card>
 
-      <Modal open={modalOpen} onClose={() => setModalOpen(false)} title={editId ? 'Edit POS Machine' : 'Add POS Machine'}>
+      <Modal open={modalOpen && passwordReady} onClose={() => setModalOpen(false)} title={editId ? 'Edit POS Machine' : 'Add POS Machine'}>
         <form onSubmit={handleSave} className="space-y-4">
           <Input
             label="Device Name"
@@ -184,7 +204,7 @@ export function PosPage() {
             autoFocus
           />
           <p className="text-xs text-slate-500">
-            The connection will be tested automatically. Status will show
+            The connection will be tested automatically. Status shows
             <strong> active</strong> if the POS responds on port 1433, or
             <strong> inactive</strong> if it cannot be reached.
           </p>

@@ -44,6 +44,7 @@ export function DashboardPage() {
           <ol className="space-y-3 text-sm text-slate-600 list-decimal list-inside">
             <li><Link to="/pos-password" className="text-brand-600 hover:underline">Set POS password</Link> (username: sa)</li>
             <li><Link to="/pos" className="text-brand-600 hover:underline">Add POS machines</Link> by Device Name (POS1, POS2, …)</li>
+            <li><Link to="/paste" className="text-brand-600 hover:underline">Paste boss instructions</Link> (Add record gen_usergroup…)</li>
             <li><Link to="/schema" className="text-brand-600 hover:underline">Create tables or add columns</Link> in Schema Builder</li>
             <li><Link to="/scripts" className="text-brand-600 hover:underline">Or create SQL scripts</Link> for data inserts</li>
             <li><Link to="/deploy" className="text-brand-600 hover:underline">Deploy scripts</Link> / check <Link to="/history" className="text-brand-600 hover:underline">history</Link></li>

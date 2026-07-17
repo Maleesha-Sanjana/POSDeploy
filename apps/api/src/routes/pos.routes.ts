@@ -1,6 +1,6 @@
 import type { FastifyInstance } from 'fastify';
 import { getDb, toPublicPos } from '../db/index.js';
-import { getPosCredentials, requirePosCredentials } from '../services/settings.service.js';
+import { isPosPasswordConfigured, requirePosCredentials } from '../services/settings.service.js';
 import { testSqlConnection } from '../services/mssql.service.js';
 import type { PosMachine } from '../types.js';
 
@@ -11,9 +11,7 @@ export async function posRoutes(app: FastifyInstance) {
   });
 
   app.get('/api/pos/can-add', async () => {
-    const creds = getPosCredentials();
-    const ready = Boolean(creds?.database_name && creds?.username && creds?.password);
-    return { ready };
+    return { ready: isPosPasswordConfigured() };
   });
 
   app.get<{ Params: { id: string } }>('/api/pos/:id', async (req, reply) => {
@@ -133,8 +131,14 @@ export async function posRoutes(app: FastifyInstance) {
 
   app.delete<{ Params: { id: string } }>('/api/pos/:id', async (req, reply) => {
     const id = Number(req.params.id);
-    const result = getDb().prepare('DELETE FROM pos_machines WHERE id = ?').run(id);
-    if (result.changes === 0) return reply.status(404).send({ error: 'POS machine not found' });
+
+    const existing = getDb().prepare('SELECT id FROM pos_machines WHERE id = ?').get(id);
+    if (!existing) return reply.status(404).send({ error: 'POS machine not found' });
+
+    // Remove related deploy results first (FK constraint)
+    getDb().prepare('DELETE FROM deploy_results WHERE pos_id = ?').run(id);
+
+    getDb().prepare('DELETE FROM pos_machines WHERE id = ?').run(id);
     return { success: true };
   });
 

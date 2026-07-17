@@ -113,3 +113,49 @@ export interface SchemaDeployResponse {
   table?: SchemaTable;
   column?: SchemaColumn;
 }
+
+export interface ParsedInstruction {
+  action: string;
+  table_name: string;
+  description: string;
+  columns: string[];
+  rows: string[][];
+  row_count: number;
+}
+
+export interface InstructionParseResult {
+  parsed: ParsedInstruction;
+  sql: string;
+  warnings: string[];
+  jobId?: string;
+  scriptId?: number;
+  message?: string;
+}
+
+export interface TableColumnMeta {
+  column_name: string;
+  data_type: string;
+  max_length: number | null;
+  precision: number | null;
+  scale: number | null;
+  is_nullable: boolean;
+  is_identity: boolean;
+  is_primary_key: boolean;
+  column_default: string | null;
+  ordinal_position: number;
+}
+
+export interface MetadataTablesResponse {
+  pos_id: number;
+  pos_name: string;
+  database: string;
+  tables: string[];
+}
+
+export interface TableSchemaResponse {
+  pos_id: number;
+  pos_name: string;
+  database: string;
+  table_name: string;
+  columns: TableColumnMeta[];
+}
