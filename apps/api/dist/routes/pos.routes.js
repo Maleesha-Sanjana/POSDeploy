@@ -1,0 +1,119 @@
+import { getDb, toPublicPos } from '../db/index.js';
+import { isPosPasswordConfigured, requirePosCredentials } from '../services/settings.service.js';
+import { testSqlConnection } from '../services/mssql.service.js';
+export async function posRoutes(app) {
+    app.get('/api/pos', async () => {
+        const rows = getDb().prepare('SELECT * FROM pos_machines ORDER BY name').all();
+        return rows.map((row) => toPublicPos(row));
+    });
+    app.get('/api/pos/can-add', async () => {
+        return { ready: isPosPasswordConfigured() };
+    });
+    app.get('/api/pos/:id', async (req, reply) => {
+        const row = getDb().prepare('SELECT * FROM pos_machines WHERE id = ?').get(Number(req.params.id));
+        if (!row)
+            return reply.status(404).send({ error: 'POS machine not found' });
+        return toPublicPos(row);
+    });
+    app.post('/api/pos', async (req, reply) => {
+        const deviceName = (req.body.device_name ?? req.body.name ?? '').trim();
+        if (!deviceName) {
+            return reply.status(400).send({ error: 'Device Name is required' });
+        }
+        let sqlConfig;
+        try {
+            sqlConfig = requirePosCredentials();
+        }
+        catch (err) {
+            return reply.status(400).send({ error: err instanceof Error ? err.message : 'SQL config missing' });
+        }
+        // Insert with is_active = 0 first, then test connection to decide
+        try {
+            const result = getDb()
+                .prepare(`
+          INSERT INTO pos_machines (name, host, database_name, username, password, is_active)
+          VALUES (?, ?, ?, ?, ?, 0)
+        `)
+                .run(deviceName, deviceName, sqlConfig.database_name, sqlConfig.username, sqlConfig.password);
+            const posId = Number(result.lastInsertRowid);
+            const pos = getDb().prepare('SELECT * FROM pos_machines WHERE id = ?').get(posId);
+            // Auto-test the connection
+            const testResult = await testSqlConnection(pos);
+            const isActive = testResult.success ? 1 : 0;
+            getDb()
+                .prepare('UPDATE pos_machines SET is_active = ? WHERE id = ?')
+                .run(isActive, posId);
+            const row = getDb().prepare('SELECT * FROM pos_machines WHERE id = ?').get(posId);
+            const publicPos = toPublicPos(row);
+            return reply.status(201).send({
+                ...publicPos,
+                connection_test: testResult,
+            });
+        }
+        catch (err) {
+            if (err instanceof Error && err.message.includes('UNIQUE constraint failed')) {
+                return reply.status(409).send({ error: `POS machine "${deviceName}" already exists` });
+            }
+            throw err;
+        }
+    });
+    app.put('/api/pos/:id', async (req, reply) => {
+        const id = Number(req.params.id);
+        const existing = getDb().prepare('SELECT * FROM pos_machines WHERE id = ?').get(id);
+        if (!existing)
+            return reply.status(404).send({ error: 'POS machine not found' });
+        const deviceName = (req.body.device_name ?? req.body.name ?? existing.name).trim();
+        if (!deviceName) {
+            return reply.status(400).send({ error: 'Device Name is required' });
+        }
+        let sqlConfig;
+        try {
+            sqlConfig = requirePosCredentials();
+        }
+        catch {
+            sqlConfig = {
+                database_name: existing.database_name,
+                username: existing.username,
+                password: existing.password,
+                updated_at: null,
+            };
+        }
+        getDb()
+            .prepare(`
+        UPDATE pos_machines
+        SET name = ?, host = ?, database_name = ?, username = ?, password = ?
+        WHERE id = ?
+      `)
+            .run(deviceName, deviceName, sqlConfig.database_name, sqlConfig.username, sqlConfig.password || existing.password, id);
+        // Re-test connection after edit
+        const pos = getDb().prepare('SELECT * FROM pos_machines WHERE id = ?').get(id);
+        const testResult = await testSqlConnection(pos);
+        const isActive = testResult.success ? 1 : 0;
+        getDb()
+            .prepare('UPDATE pos_machines SET is_active = ? WHERE id = ?')
+            .run(isActive, id);
+        const row = getDb().prepare('SELECT * FROM pos_machines WHERE id = ?').get(id);
+        return toPublicPos(row);
+    });
+    app.delete('/api/pos/:id', async (req, reply) => {
+        const id = Number(req.params.id);
+        const existing = getDb().prepare('SELECT id FROM pos_machines WHERE id = ?').get(id);
+        if (!existing)
+            return reply.status(404).send({ error: 'POS machine not found' });
+        // Remove related deploy results first (FK constraint)
+        getDb().prepare('DELETE FROM deploy_results WHERE pos_id = ?').run(id);
+        getDb().prepare('DELETE FROM pos_machines WHERE id = ?').run(id);
+        return { success: true };
+    });
+    app.post('/api/pos/:id/test', async (req, reply) => {
+        const pos = getDb().prepare('SELECT * FROM pos_machines WHERE id = ?').get(Number(req.params.id));
+        if (!pos)
+            return reply.status(404).send({ error: 'POS machine not found' });
+        const result = await testSqlConnection(pos);
+        // Update is_active based on test result
+        getDb()
+            .prepare('UPDATE pos_machines SET is_active = ? WHERE id = ?')
+            .run(result.success ? 1 : 0, pos.id);
+        return result;
+    });
+}

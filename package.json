@@ -1,0 +1,19 @@
+{
+  "name": "posdeploy",
+  "version": "1.0.0",
+  "private": true,
+  "workspaces": [
+    "apps/*"
+  ],
+  "scripts": {
+    "dev": "concurrently \"npm run dev -w @posdeploy/api\" \"npm run dev -w @posdeploy/web\"",
+    "dev:api": "npm run dev -w @posdeploy/api",
+    "dev:web": "npm run dev -w @posdeploy/web",
+    "build": "npm run build -w @posdeploy/api && npm run build -w @posdeploy/web",
+    "start": "npm run start -w @posdeploy/api",
+    "preview": "npm run build && npm run start"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.2"
+  }
+}
