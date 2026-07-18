@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { api } from '../api/client';
+import { api, DEFAULT_DATABASE } from '../api/client';
 import type {
   ColumnDefinition,
   DataTypeOption,
@@ -43,7 +43,12 @@ function needsPrecision(type: string) {
 export function SchemaPage() {
   const [mode, setMode] = useState<Mode>('create-table');
   const [tables, setTables] = useState<SchemaTable[]>([]);
-  const [posList, setPosList] = useState<PosMachine[]>([]);
+  const [allPos, setAllPos] = useState<PosMachine[]>([]);
+  const [passwordReady, setPasswordReady] = useState(false);
+  const [sourcePosId, setSourcePosId] = useState('');
+  const [posTables, setPosTables] = useState<string[]>([]);
+  const [loadingPosTables, setLoadingPosTables] = useState(false);
+  const [posTablesHint, setPosTablesHint] = useState('');
   const [dataTypes, setDataTypes] = useState<DataTypeOption[]>([]);
   const [error, setError] = useState('');
   const [info, setInfo] = useState('');
@@ -69,10 +74,14 @@ export function SchemaPage() {
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const load = () => {
-    Promise.all([api.getSchemaTables(), api.getPos(), api.getDataTypes()])
-      .then(([t, p, d]) => {
+    Promise.all([api.getSchemaTables(), api.getPos(), api.getDataTypes(), api.getPosCredentials()])
+      .then(([t, p, d, creds]) => {
         setTables(t);
-        setPosList(p.filter((x) => x.is_active));
+        setAllPos(p);
+        setPasswordReady(creds.has_password);
+        if (p.length > 0) {
+          setSourcePosId((prev) => prev || String(p[0].id));
+        }
         setDataTypes(d);
       })
       .catch((e) => setError(e.message));
@@ -85,7 +94,43 @@ export function SchemaPage() {
     };
   }, []);
 
-  const activePos = posList.filter((p) => p.is_active);
+  // Load tables from POS for Add Column target dropdown
+  useEffect(() => {
+    if (mode !== 'add-column' || !sourcePosId) {
+      return;
+    }
+
+    if (!passwordReady) {
+      setPosTables([]);
+      setPosTablesHint('Save POS password in POS Password Setting to load tables');
+      return;
+    }
+
+    setLoadingPosTables(true);
+    setPosTablesHint('');
+
+    api.getTablesFromPos(DEFAULT_DATABASE, Number(sourcePosId))
+      .then((res) => {
+        setPosTables(res.tables);
+        if (res.tables.length === 0) {
+          setPosTablesHint('No tables found in this database');
+          setTargetTable('');
+          return;
+        }
+        setTargetTable((current) =>
+          current && res.tables.includes(current) && current !== '__custom__'
+            ? current
+            : res.tables[0]
+        );
+      })
+      .catch((e) => {
+        setPosTables([]);
+        setPosTablesHint(e instanceof Error ? e.message : 'Failed to load tables from POS');
+      })
+      .finally(() => setLoadingPosTables(false));
+  }, [mode, passwordReady, sourcePosId]);
+
+  const activePos = allPos.filter((p) => p.is_active);
 
   const togglePos = (id: number) => {
     setSelectedPos((prev) =>
@@ -340,19 +385,43 @@ export function SchemaPage() {
           ) : (
             <Card className="p-6">
               <form onSubmit={handleAddColumn} className="space-y-5">
+                <p className="text-xs text-slate-500">
+                  Database: <strong className="font-mono">{DEFAULT_DATABASE}</strong> (same on all POS)
+                </p>
+
+                <Select
+                  label="Read tables from POS"
+                  value={sourcePosId}
+                  onChange={(e) => setSourcePosId(e.target.value)}
+                  disabled={submitting || allPos.length === 0}
+                >
+                  <option value="">— Select POS —</option>
+                  {allPos.map((pos) => (
+                    <option key={pos.id} value={String(pos.id)}>
+                      {pos.name}{pos.is_active ? '' : ' (offline)'}
+                    </option>
+                  ))}
+                </Select>
+
                 <Select
                   label="Target Table"
                   value={targetTable}
                   onChange={(e) => setTargetTable(e.target.value)}
-                  disabled={submitting}
+                  disabled={submitting || loadingPosTables}
                   required
                 >
-                  <option value="">— Select table —</option>
-                  {tables.map((t) => (
-                    <option key={t.id} value={t.table_name}>{t.table_name}</option>
+                  <option value="">
+                    {loadingPosTables ? 'Loading tables from POS...' : '— Select table —'}
+                  </option>
+                  {posTables.map((name) => (
+                    <option key={name} value={name}>{name}</option>
                   ))}
-                  <option value="__custom__">Existing table (type name)…</option>
+                  <option value="__custom__">Other table (type name)…</option>
                 </Select>
+
+                {posTablesHint && !loadingPosTables && (
+                  <p className="text-xs text-amber-600">{posTablesHint}</p>
+                )}
 
                 {targetTable === '__custom__' && (
                   <Input
