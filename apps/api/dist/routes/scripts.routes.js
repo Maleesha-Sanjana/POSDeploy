@@ -52,9 +52,17 @@ export async function scriptRoutes(app) {
     });
     app.delete('/api/scripts/:id', async (req, reply) => {
         const id = Number(req.params.id);
-        const result = getDb().prepare('DELETE FROM scripts WHERE id = ?').run(id);
-        if (result.changes === 0)
-            return reply.status(404).send({ error: 'Script not found' });
-        return { success: true };
+        try {
+            const result = getDb().prepare('DELETE FROM scripts WHERE id = ?').run(id);
+            if (result.changes === 0)
+                return reply.status(404).send({ error: 'Script not found' });
+            return { success: true };
+        }
+        catch (err) {
+            if (err instanceof Error && err.message.includes('FOREIGN KEY constraint failed')) {
+                return reply.status(400).send({ error: 'Cannot delete script because it has deployment history' });
+            }
+            throw err;
+        }
     });
 }
