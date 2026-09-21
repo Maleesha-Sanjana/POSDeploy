@@ -1,6 +1,6 @@
 import type { FastifyInstance } from 'fastify';
 import { getDb, toPublicPos } from '../db/index.js';
-import { testSqlConnection } from '../services/mssql.service.js';
+import { testSqlConnection, testTcpConnection } from '../services/mssql.service.js';
 import type { PosMachine, ConnectionTestResult } from '../types.js';
 // @ts-ignore
 import findLocalDevices from 'local-devices';
@@ -51,15 +51,29 @@ export async function posRoutes(app: FastifyInstance) {
     let testResult: ConnectionTestResult | null = null;
     const passwordsToTry = explicitPassword ? [explicitPassword] : PASSWORDS_TO_TRY;
 
-    for (const pwd of passwordsToTry) {
-      posToTest.password = pwd;
-      const res = await testSqlConnection(posToTest);
-      if (res.success) {
-        workingPassword = pwd;
-        testResult = res;
-        break;
-      }
-      testResult = res;
+    const tcpOk = await testTcpConnection(posToTest.host);
+    if (!tcpOk) {
+      return reply.status(401).send({
+        error: 'Auto-connect failed. Machine offline or firewall blocking port 1433.',
+        testResult: { success: false, message: `Cannot reach ${posToTest.host}:1433` }
+      });
+    }
+
+    try {
+      const result = await Promise.any(
+        passwordsToTry.map(async (pwd) => {
+          const testPos = { ...posToTest, password: pwd };
+          const res = await testSqlConnection(testPos);
+          if (res.success) {
+            return { pwd, res };
+          }
+          throw new Error(res.message);
+        })
+      );
+      workingPassword = result.pwd;
+      testResult = result.res;
+    } catch (err) {
+      testResult = { success: false, message: 'All auto-connect passwords failed' };
     }
 
     if (!workingPassword) {
@@ -126,15 +140,29 @@ export async function posRoutes(app: FastifyInstance) {
     // If we want it to auto-discover on edit too if the existing fails, we could, but let's try existing first.
     const passwordsToTry = explicitPassword ? [explicitPassword] : [existing.password, ...PASSWORDS_TO_TRY.filter(p => p !== existing.password)];
 
-    for (const pwd of passwordsToTry) {
-      posToTest.password = pwd;
-      const res = await testSqlConnection(posToTest);
-      if (res.success) {
-        workingPassword = pwd;
-        testResult = res;
-        break;
-      }
-      testResult = res;
+    const tcpOk = await testTcpConnection(posToTest.host);
+    if (!tcpOk) {
+      return reply.status(401).send({
+        error: 'Auto-connect failed. Machine offline or firewall blocking port 1433.',
+        testResult: { success: false, message: `Cannot reach ${posToTest.host}:1433` }
+      });
+    }
+
+    try {
+      const result = await Promise.any(
+        passwordsToTry.map(async (pwd) => {
+          const testPos = { ...posToTest, password: pwd };
+          const res = await testSqlConnection(testPos);
+          if (res.success) {
+            return { pwd, res };
+          }
+          throw new Error(res.message);
+        })
+      );
+      workingPassword = result.pwd;
+      testResult = result.res;
+    } catch (err) {
+      testResult = { success: false, message: 'All auto-connect passwords failed' };
     }
 
     if (!workingPassword) {

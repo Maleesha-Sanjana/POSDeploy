@@ -12,6 +12,8 @@ import { deployRoutes } from './routes/deploy.routes.js';
 import { schemaRoutes } from './routes/schema.routes.js';
 import { instructionsRoutes } from './routes/instructions.routes.js';
 import { metadataRoutes } from './routes/metadata.routes.js';
+import { debugRoutes } from './routes/debug.routes.js';
+import multipart from '@fastify/multipart';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PORT = Number(process.env.PORT ?? 3001);
 const HOST = process.env.HOST ?? '0.0.0.0';
@@ -29,6 +31,20 @@ async function main() {
     await app.register(schemaRoutes);
     await app.register(instructionsRoutes);
     await app.register(metadataRoutes);
+    await app.register(debugRoutes);
+    await app.register(multipart, {
+        limits: {
+            fileSize: 1024 * 1024 * 500, // 500MB
+        },
+    });
+    const uploadsDir = path.resolve(__dirname, '../../uploads');
+    if (!fs.existsSync(uploadsDir))
+        fs.mkdirSync(uploadsDir, { recursive: true });
+    await app.register(fastifyStatic, {
+        root: uploadsDir,
+        prefix: '/uploads/',
+        decorateReply: false
+    });
     app.get('/api/health', async () => ({ status: 'ok', service: 'POSDeploy API' }));
     // Serve React webpage from the same server (production / preview)
     if (fs.existsSync(WEB_DIST)) {

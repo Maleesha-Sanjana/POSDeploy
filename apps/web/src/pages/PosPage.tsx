@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Link } from 'react-router-dom';
+
 import { api } from '../api/client';
 import type { PosMachine } from '../types';
 import {
@@ -25,6 +25,7 @@ export function PosPage() {
   const [deletingId, setDeletingId] = useState<number | null>(null);
   const [discovering, setDiscovering] = useState(false);
   const [discoveredDevices, setDiscoveredDevices] = useState<{name: string, ip: string, mac: string}[] | null>(null);
+  const [addingDevices, setAddingDevices] = useState<{name: string; ip: string; status: 'pending' | 'running' | 'completed' | 'failed', error?: string}[] | null>(null);
   const [manualPassword, setManualPassword] = useState('');
   const [showManualPassword, setShowManualPassword] = useState(false);
 
@@ -40,11 +41,11 @@ export function PosPage() {
 
   useEffect(load, []);
 
-  const openAdd = () => {
+  const openAdd = (withPassword = false) => {
     setEditId(null);
     setDeviceName('');
     setManualPassword('');
-    setShowManualPassword(false);
+    setShowManualPassword(withPassword);
     setModalOpen(true);
   };
 
@@ -122,19 +123,29 @@ export function PosPage() {
       
       if (filtered.length === 0) {
         setDiscoveredDevices([]);
+        setAddingDevices(null);
         return;
       }
+
+      setAddingDevices(filtered.map(d => ({
+        name: d.name !== '?' ? d.name : d.ip,
+        ip: d.ip,
+        status: 'pending'
+      })));
 
       const manualDevices: typeof devices = [];
       let addedCount = 0;
 
       await Promise.allSettled(
         filtered.map(async (dev) => {
+          setAddingDevices(prev => prev ? prev.map(p => p.ip === dev.ip ? { ...p, status: 'running' } : p) : null);
           try {
             await api.createPos({ device_name: dev.name !== '?' ? dev.name : dev.ip });
             addedCount++;
+            setAddingDevices(prev => prev ? prev.map(p => p.ip === dev.ip ? { ...p, status: 'completed' } : p) : null);
           } catch (err) {
-            const msg = err instanceof Error ? err.message : '';
+            const msg = err instanceof Error ? err.message : 'Failed to connect';
+            setAddingDevices(prev => prev ? prev.map(p => p.ip === dev.ip ? { ...p, status: 'failed', error: msg } : p) : null);
             if (msg.toLowerCase().includes('manually')) {
               manualDevices.push(dev);
             }
@@ -156,14 +167,14 @@ export function PosPage() {
   return (
     <div>
       <PageHeader
-        title="POS Machines"
-        description="Add each POS by Device Name. Status shows active only when connection to the POS is successful."
+        title="POS Discovering"
+        description="Auto-discover machines on the LAN or manually add POS devices to test connections"
         action={
           <div className="flex gap-2">
             <Button variant="secondary" onClick={handleDiscover} disabled={discovering}>
               {discovering ? 'Scanning...' : 'Scan Network'}
             </Button>
-            <Button onClick={openAdd}>
+            <Button onClick={() => openAdd()}>
               + Add POS
             </Button>
           </div>
@@ -171,6 +182,55 @@ export function PosPage() {
       />
 
       {error && <div className="mb-4"><Alert type="error" message={error} /></div>}
+
+      {addingDevices !== null && (() => {
+        const total = addingDevices.length;
+        const done = addingDevices.filter(d => d.status === 'completed' || d.status === 'failed').length;
+        const percent = total > 0 ? (done / total) * 100 : 0;
+        
+        return (
+          <Card className="fixed bottom-6 right-6 w-96 p-4 shadow-2xl border border-slate-200 z-50 bg-white max-h-96 overflow-y-auto">
+            <div className="flex items-center justify-between mb-2">
+              <h3 className="font-semibold text-slate-900">Deploy Progress (Adding POS)</h3>
+              {!discovering && <Button size="sm" variant="ghost" onClick={() => setAddingDevices(null)}>Dismiss</Button>}
+            </div>
+            
+            <div className="mb-4">
+              <div className="flex justify-between text-xs text-slate-500 mb-1">
+                <span>{done} / {total} Completed</span>
+                <span>{Math.round(percent)}%</span>
+              </div>
+              <div className="w-full bg-slate-100 h-1.5 rounded-full overflow-hidden">
+                <div className="bg-brand-600 h-full transition-all duration-300" style={{ width: `${percent}%` }} />
+              </div>
+            </div>
+
+            <ul className="text-sm space-y-2">
+              {addingDevices.map((d) => (
+                <li key={d.ip} className="flex flex-col gap-0.5 border-b border-slate-100 pb-2">
+                  <div className="flex items-center justify-between">
+                    <span className="font-medium text-slate-700">{d.name} ({d.ip})</span>
+                    {d.status === 'pending' && <span className="text-xs text-slate-400 font-medium px-2 py-0.5 bg-slate-100 rounded-md">Pending</span>}
+                    {d.status === 'running' && (
+                      <div className="flex items-center gap-1.5 text-xs text-blue-600 font-medium">
+                        <span className="inline-block w-3 h-3 border-2 border-blue-600 border-t-transparent rounded-full animate-spin" />
+                        Connecting
+                      </div>
+                    )}
+                    {d.status === 'completed' && <Badge status="completed" />}
+                    {d.status === 'failed' && <Badge status="failed" />}
+                  </div>
+                  {d.error && (
+                    <p className="text-xs text-red-600 font-mono mt-1 break-words">
+                      {d.error}
+                    </p>
+                  )}
+                </li>
+              ))}
+            </ul>
+          </Card>
+        );
+      })()}
 
       {testResult && (
         <div className="mb-4">
@@ -206,7 +266,7 @@ export function PosPage() {
                       <div className="text-xs text-slate-500 font-mono mt-0.5 truncate">{dev.ip}</div>
                     </div>
                     <Button size="sm" className="shrink-0" onClick={() => {
-                      openAdd();
+                      openAdd(true);
                       setDeviceName(dev.name !== '?' ? dev.name : dev.ip);
                     }}>
                       Add Manually

@@ -149,3 +149,9 @@ export async function executeSql(pos, sqlText) {
         return { rowsAffected };
     });
 }
+export async function querySql(pos, sqlText) {
+    return withPool(pos, pos.database_name, async (pool) => {
+        const result = await pool.request().query(sqlText);
+        return result.recordset;
+    });
+}
