@@ -2,7 +2,6 @@ import { NavLink, Outlet } from 'react-router-dom';
 
 const navItems = [
   { to: '/', label: 'Dashboard', end: true },
-  { to: '/pos-password', label: 'POS Password Setting' },
   { to: '/pos', label: 'POS Machines' },
   { to: '/paste', label: 'Paste Instructions' },
   { to: '/schema', label: 'Schema Builder' },

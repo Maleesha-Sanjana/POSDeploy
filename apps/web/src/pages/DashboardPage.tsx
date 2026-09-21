@@ -42,7 +42,6 @@ export function DashboardPage() {
         <Card className="p-6">
           <h3 className="font-semibold text-slate-900 mb-4">Quick Start</h3>
           <ol className="space-y-3 text-sm text-slate-600 list-decimal list-inside">
-            <li><Link to="/pos-password" className="text-brand-600 hover:underline">Set POS password</Link> (username: sa)</li>
             <li><Link to="/pos" className="text-brand-600 hover:underline">Add POS machines</Link> by Device Name (POS1, POS2, …)</li>
             <li><Link to="/paste" className="text-brand-600 hover:underline">Paste boss instructions</Link> (Add record gen_usergroup…)</li>
             <li><Link to="/schema" className="text-brand-600 hover:underline">Create tables or add columns</Link> in Schema Builder</li>

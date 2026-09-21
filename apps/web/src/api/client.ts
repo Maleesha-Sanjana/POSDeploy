@@ -49,18 +49,11 @@ async function request<T>(url: string, options?: RequestInit): Promise<T> {
 export const api = {
   getDashboard: () => request<DashboardStats>('/dashboard'),
 
-  getPosCredentials: () => request<PosCredentialsPublic>('/settings/pos-credentials'),
-  savePosCredentials: (body: { database_name: string; username?: string; password: string }) =>
-    request<PosCredentialsPublic>('/settings/pos-credentials', {
-      method: 'PUT',
-      body: JSON.stringify(body),
-    }),
-
   getPos: () => request<PosMachine[]>('/pos'),
-  canAddPos: () => request<{ ready: boolean }>('/pos/can-add'),
-  createPos: (body: { device_name: string }) =>
+  discoverPos: () => request<{ name: string; ip: string; mac: string }[]>('/pos/discover'),
+  createPos: (body: { device_name: string; password?: string }) =>
     request<PosMachine>('/pos', { method: 'POST', body: JSON.stringify(body) }),
-  updatePos: (id: number, body: { device_name?: string }) =>
+  updatePos: (id: number, body: { device_name?: string; password?: string }) =>
     request<PosMachine>(`/pos/${id}`, { method: 'PUT', body: JSON.stringify(body) }),
   deletePos: (id: number) => request<{ success: boolean }>(`/pos/${id}`, { method: 'DELETE' }),
   testPos: (id: number) => request<ConnectionTestResult>(`/pos/${id}/test`, { method: 'POST' }),

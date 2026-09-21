@@ -23,14 +23,16 @@ export function PosPage() {
   const [testResult, setTestResult] = useState<{ id: number; message: string; success: boolean } | null>(null);
   const [saving, setSaving] = useState(false);
   const [deletingId, setDeletingId] = useState<number | null>(null);
-  const [passwordReady, setPasswordReady] = useState(false);
+  const [discovering, setDiscovering] = useState(false);
+  const [discoveredDevices, setDiscoveredDevices] = useState<{name: string, ip: string, mac: string}[] | null>(null);
+  const [manualPassword, setManualPassword] = useState('');
+  const [showManualPassword, setShowManualPassword] = useState(false);
 
   const load = () => {
     setLoading(true);
-    Promise.all([api.getPos(), api.canAddPos()])
-      .then(([pos, { ready }]) => {
+    api.getPos()
+      .then((pos) => {
         setPosList(pos);
-        setPasswordReady(ready);
       })
       .catch((e) => setError(e.message))
       .finally(() => setLoading(false));
@@ -39,35 +41,40 @@ export function PosPage() {
   useEffect(load, []);
 
   const openAdd = () => {
-    if (!passwordReady) return;
     setEditId(null);
     setDeviceName('');
+    setManualPassword('');
+    setShowManualPassword(false);
     setModalOpen(true);
   };
 
   const openEdit = (pos: PosMachine) => {
-    if (!passwordReady) return;
     setEditId(pos.id);
     setDeviceName(pos.name);
+    setManualPassword('');
+    setShowManualPassword(false);
     setModalOpen(true);
   };
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!passwordReady) return;
     setSaving(true);
     setError('');
 
     try {
       if (editId) {
-        await api.updatePos(editId, { device_name: deviceName.trim() });
+        await api.updatePos(editId, { device_name: deviceName.trim(), password: manualPassword || undefined });
       } else {
-        await api.createPos({ device_name: deviceName.trim() });
+        await api.createPos({ device_name: deviceName.trim(), password: manualPassword || undefined });
       }
       setModalOpen(false);
       load();
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Save failed');
+      const msg = err instanceof Error ? err.message : 'Save failed';
+      setError(msg);
+      if (msg.toLowerCase().includes('manually')) {
+        setShowManualPassword(true);
+      }
     } finally {
       setSaving(false);
     }
@@ -88,7 +95,6 @@ export function PosPage() {
   };
 
   const handleTest = async (id: number) => {
-    if (!passwordReady) return;
     setTestingId(id);
     setTestResult(null);
     try {
@@ -106,36 +112,111 @@ export function PosPage() {
     }
   };
 
+  const handleDiscover = async () => {
+    setDiscovering(true);
+    setError('');
+    try {
+      const devices = await api.discoverPos();
+      const existingNames = new Set(posList.map(p => p.name.toLowerCase()));
+      const filtered = devices.filter(d => !existingNames.has(d.name.toLowerCase()) && !existingNames.has(d.ip));
+      
+      if (filtered.length === 0) {
+        setDiscoveredDevices([]);
+        return;
+      }
+
+      const manualDevices: typeof devices = [];
+      let addedCount = 0;
+
+      await Promise.allSettled(
+        filtered.map(async (dev) => {
+          try {
+            await api.createPos({ device_name: dev.name !== '?' ? dev.name : dev.ip });
+            addedCount++;
+          } catch (err) {
+            const msg = err instanceof Error ? err.message : '';
+            if (msg.toLowerCase().includes('manually')) {
+              manualDevices.push(dev);
+            }
+          }
+        })
+      );
+
+      setDiscoveredDevices(manualDevices);
+      if (addedCount > 0) {
+        load();
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Discovery failed');
+    } finally {
+      setDiscovering(false);
+    }
+  };
+
   return (
     <div>
       <PageHeader
         title="POS Machines"
         description="Add each POS by Device Name. Status shows active only when connection to the POS is successful."
         action={
-          <Button onClick={openAdd} disabled={!passwordReady}>
-            + Add POS
-          </Button>
+          <div className="flex gap-2">
+            <Button variant="secondary" onClick={handleDiscover} disabled={discovering}>
+              {discovering ? 'Scanning...' : 'Scan Network'}
+            </Button>
+            <Button onClick={openAdd}>
+              + Add POS
+            </Button>
+          </div>
         }
       />
 
-      {!passwordReady && !loading && (
-        <div className="mb-6 rounded-xl border border-amber-200 bg-amber-50 p-6">
-          <h3 className="font-semibold text-amber-900 mb-2">POS Password Required</h3>
-          <p className="text-sm text-amber-800 mb-4">
-            Adding or editing POS machines is locked until you set the POS SQL password. You can still delete existing entries below.
-          </p>
-          <Link to="/pos-password">
-            <Button>Go to POS Password Setting</Button>
-          </Link>
-        </div>
-      )}
-
       {error && <div className="mb-4"><Alert type="error" message={error} /></div>}
 
-      {testResult && passwordReady && (
+      {testResult && (
         <div className="mb-4">
           <Alert type={testResult.success ? 'success' : 'error'} message={testResult.message} />
         </div>
+      )}
+
+      {discoveredDevices !== null && (
+        <Card className="mb-6 p-6 border-brand-200 bg-brand-50/30">
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="font-semibold text-slate-900">Scan Complete</h3>
+            <Button size="sm" variant="ghost" onClick={() => setDiscoveredDevices(null)}>Close</Button>
+          </div>
+          {discoveredDevices.length === 0 ? (
+            <p className="text-sm text-slate-600">All reachable POS machines have been automatically added!</p>
+          ) : (
+            <div>
+              <p className="text-sm text-amber-700 mb-4 font-medium">The following devices were found but require a manual password:</p>
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                {discoveredDevices.map((dev) => (
+                  <div key={dev.mac} className="relative flex items-center justify-between p-3 pr-8 border border-slate-200 rounded-lg bg-white shadow-sm">
+                    <button 
+                      onClick={() => setDiscoveredDevices(prev => prev ? prev.filter(d => d.mac !== dev.mac) : null)}
+                      className="absolute top-1.5 right-1.5 text-slate-400 hover:text-red-500 transition-colors p-1 rounded-md"
+                      title="Dismiss"
+                    >
+                      <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
+                    </button>
+                    <div className="min-w-0 flex-1 pr-2">
+                      <div className="font-medium text-slate-900 text-sm truncate" title={dev.name !== '?' ? dev.name : dev.ip}>
+                        {dev.name !== '?' ? dev.name : dev.ip}
+                      </div>
+                      <div className="text-xs text-slate-500 font-mono mt-0.5 truncate">{dev.ip}</div>
+                    </div>
+                    <Button size="sm" className="shrink-0" onClick={() => {
+                      openAdd();
+                      setDeviceName(dev.name !== '?' ? dev.name : dev.ip);
+                    }}>
+                      Add Manually
+                    </Button>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </Card>
       )}
 
       <Card>
@@ -143,9 +224,7 @@ export function PosPage() {
           <div className="p-8 text-center text-slate-500">Loading...</div>
         ) : posList.length === 0 ? (
           <div className="p-8 text-center text-slate-500">
-            {passwordReady
-              ? 'No POS machines yet. Click "+ Add POS" and enter a Device Name like POS1.'
-              : 'Set the POS password first to add POS machines.'}
+            No POS machines yet. Click "+ Add POS" and enter a Device Name like POS1.
           </div>
         ) : (
           <div className="overflow-x-auto">
@@ -169,11 +248,11 @@ export function PosPage() {
                         size="sm"
                         variant="secondary"
                         onClick={() => handleTest(pos.id)}
-                        disabled={testingId === pos.id || !passwordReady}
+                        disabled={testingId === pos.id}
                       >
                         {testingId === pos.id ? 'Testing...' : 'Test'}
                       </Button>
-                      <Button size="sm" variant="ghost" onClick={() => openEdit(pos)} disabled={!passwordReady}>
+                      <Button size="sm" variant="ghost" onClick={() => openEdit(pos)}>
                         Edit
                       </Button>
                       <Button
@@ -193,8 +272,9 @@ export function PosPage() {
         )}
       </Card>
 
-      <Modal open={modalOpen && passwordReady} onClose={() => setModalOpen(false)} title={editId ? 'Edit POS Machine' : 'Add POS Machine'}>
+      <Modal open={modalOpen} onClose={() => setModalOpen(false)} title={editId ? 'Edit POS Machine' : 'Add POS Machine'}>
         <form onSubmit={handleSave} className="space-y-4">
+          {error && <Alert type="error" message={error} />}
           <Input
             label="Device Name"
             value={deviceName}
@@ -203,8 +283,18 @@ export function PosPage() {
             placeholder="POS1"
             autoFocus
           />
+          {showManualPassword && (
+            <Input
+              label="SQL Password (sa)"
+              type="password"
+              value={manualPassword}
+              onChange={(e) => setManualPassword(e.target.value)}
+              required
+              placeholder="Enter password manually"
+            />
+          )}
           <p className="text-xs text-slate-500">
-            The connection will be tested automatically. Status shows
+            The connection will be tested automatically using default passwords. Status shows
             <strong> active</strong> if the POS responds on port 1433, or
             <strong> inactive</strong> if it cannot be reached.
           </p>
