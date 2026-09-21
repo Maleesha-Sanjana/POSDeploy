@@ -1,12 +1,8 @@
 import { getDb } from '../db/index.js';
 import { getTableSchema, listDatabases, listTables } from './mssql.service.js';
-import { isPosPasswordConfigured } from './settings.service.js';
 import type { PosMachine } from '../types.js';
 
 function getPosMachine(posId?: number): PosMachine {
-  if (!isPosPasswordConfigured()) {
-    throw new Error('POS password is not set. Go to POS Password Setting first.');
-  }
 
   if (posId) {
     const pos = getDb()

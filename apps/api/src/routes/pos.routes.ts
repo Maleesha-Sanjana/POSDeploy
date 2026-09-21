@@ -1,17 +1,23 @@
 import type { FastifyInstance } from 'fastify';
 import { getDb, toPublicPos } from '../db/index.js';
-import { isPosPasswordConfigured, requirePosCredentials } from '../services/settings.service.js';
 import { testSqlConnection } from '../services/mssql.service.js';
-import type { PosMachine } from '../types.js';
+import type { PosMachine, ConnectionTestResult } from '../types.js';
+// @ts-ignore
+import findLocalDevices from 'local-devices';
 
 export async function posRoutes(app: FastifyInstance) {
+  app.get('/api/pos/discover', async () => {
+    try {
+      const devices = await findLocalDevices();
+      return devices;
+    } catch (err) {
+      return { error: 'Failed to discover devices' };
+    }
+  });
+
   app.get('/api/pos', async () => {
     const rows = getDb().prepare('SELECT * FROM pos_machines ORDER BY name').all();
     return rows.map((row) => toPublicPos(row as Record<string, unknown>));
-  });
-
-  app.get('/api/pos/can-add', async () => {
-    return { ready: isPosPasswordConfigured() };
   });
 
   app.get<{ Params: { id: string } }>('/api/pos/:id', async (req, reply) => {
@@ -20,46 +26,61 @@ export async function posRoutes(app: FastifyInstance) {
     return toPublicPos(row as Record<string, unknown>);
   });
 
-  app.post<{ Body: { device_name?: string; name?: string } }>('/api/pos', async (req, reply) => {
+  const PASSWORDS_TO_TRY = ['jbs2014', 'Kx1716@2022!', 'msdb123', 'Corei7@2022!', 'Corei5@2021!'];
+
+  app.post<{ Body: { device_name?: string; name?: string; password?: string } }>('/api/pos', async (req, reply) => {
     const deviceName = (req.body.device_name ?? req.body.name ?? '').trim();
+    const explicitPassword = req.body.password?.trim();
 
     if (!deviceName) {
       return reply.status(400).send({ error: 'Device Name is required' });
     }
 
-    let sqlConfig;
-    try {
-      sqlConfig = requirePosCredentials();
-    } catch (err) {
-      return reply.status(400).send({ error: err instanceof Error ? err.message : 'SQL config missing' });
+    const posToTest: PosMachine = {
+      id: 0,
+      name: deviceName,
+      host: deviceName,
+      database_name: 'POS_SOLUTION',
+      username: 'sa',
+      password: '',
+      is_active: 0,
+      created_at: new Date().toISOString()
+    };
+
+    let workingPassword = null;
+    let testResult: ConnectionTestResult | null = null;
+    const passwordsToTry = explicitPassword ? [explicitPassword] : PASSWORDS_TO_TRY;
+
+    for (const pwd of passwordsToTry) {
+      posToTest.password = pwd;
+      const res = await testSqlConnection(posToTest);
+      if (res.success) {
+        workingPassword = pwd;
+        testResult = res;
+        break;
+      }
+      testResult = res;
     }
 
-    // Insert with is_active = 0 first, then test connection to decide
+    if (!workingPassword) {
+      return reply.status(401).send({ error: 'Auto-connect failed. Please enter password manually.', testResult });
+    }
+
     try {
       const result = getDb()
         .prepare(`
           INSERT INTO pos_machines (name, host, database_name, username, password, is_active)
-          VALUES (?, ?, ?, ?, ?, 0)
+          VALUES (?, ?, ?, ?, ?, 1)
         `)
         .run(
-          deviceName,
-          deviceName,
-          sqlConfig.database_name,
-          sqlConfig.username,
-          sqlConfig.password
+          posToTest.name,
+          posToTest.host,
+          posToTest.database_name,
+          posToTest.username,
+          posToTest.password
         );
 
       const posId = Number(result.lastInsertRowid);
-      const pos = getDb().prepare('SELECT * FROM pos_machines WHERE id = ?').get(posId) as PosMachine;
-
-      // Auto-test the connection
-      const testResult = await testSqlConnection(pos);
-      const isActive = testResult.success ? 1 : 0;
-
-      getDb()
-        .prepare('UPDATE pos_machines SET is_active = ? WHERE id = ?')
-        .run(isActive, posId);
-
       const row = getDb().prepare('SELECT * FROM pos_machines WHERE id = ?').get(posId);
       const publicPos = toPublicPos(row as Record<string, unknown>);
 
@@ -77,7 +98,7 @@ export async function posRoutes(app: FastifyInstance) {
 
   app.put<{
     Params: { id: string };
-    Body: { device_name?: string; name?: string; is_active?: boolean };
+    Body: { device_name?: string; name?: string; is_active?: boolean; password?: string };
   }>('/api/pos/:id', async (req, reply) => {
     const id = Number(req.params.id);
     const existing = getDb().prepare('SELECT * FROM pos_machines WHERE id = ?').get(id) as PosMachine | undefined;
@@ -89,41 +110,51 @@ export async function posRoutes(app: FastifyInstance) {
       return reply.status(400).send({ error: 'Device Name is required' });
     }
 
-    let sqlConfig;
-    try {
-      sqlConfig = requirePosCredentials();
-    } catch {
-      sqlConfig = {
-        database_name: existing.database_name,
-        username: existing.username,
-        password: existing.password,
-        updated_at: null,
-      };
+    const explicitPassword = req.body.password?.trim();
+
+    const posToTest: PosMachine = {
+      ...existing,
+      name: deviceName,
+      host: deviceName,
+    };
+
+    let workingPassword = null;
+    let testResult: ConnectionTestResult | null = null;
+    
+    // If they explicitly supplied a password, try only that. 
+    // Otherwise if it's just a rename, try the existing password.
+    // If we want it to auto-discover on edit too if the existing fails, we could, but let's try existing first.
+    const passwordsToTry = explicitPassword ? [explicitPassword] : [existing.password, ...PASSWORDS_TO_TRY.filter(p => p !== existing.password)];
+
+    for (const pwd of passwordsToTry) {
+      posToTest.password = pwd;
+      const res = await testSqlConnection(posToTest);
+      if (res.success) {
+        workingPassword = pwd;
+        testResult = res;
+        break;
+      }
+      testResult = res;
+    }
+
+    if (!workingPassword) {
+      return reply.status(401).send({ error: 'Auto-connect failed. Please enter password manually.', testResult });
     }
 
     getDb()
       .prepare(`
         UPDATE pos_machines
-        SET name = ?, host = ?, database_name = ?, username = ?, password = ?
+        SET name = ?, host = ?, database_name = ?, username = ?, password = ?, is_active = 1
         WHERE id = ?
       `)
       .run(
-        deviceName,
-        deviceName,
-        sqlConfig.database_name,
-        sqlConfig.username,
-        sqlConfig.password || existing.password,
+        posToTest.name,
+        posToTest.host,
+        posToTest.database_name,
+        posToTest.username,
+        posToTest.password,
         id
       );
-
-    // Re-test connection after edit
-    const pos = getDb().prepare('SELECT * FROM pos_machines WHERE id = ?').get(id) as PosMachine;
-    const testResult = await testSqlConnection(pos);
-    const isActive = testResult.success ? 1 : 0;
-
-    getDb()
-      .prepare('UPDATE pos_machines SET is_active = ? WHERE id = ?')
-      .run(isActive, id);
 
     const row = getDb().prepare('SELECT * FROM pos_machines WHERE id = ?').get(id);
     return toPublicPos(row as Record<string, unknown>);

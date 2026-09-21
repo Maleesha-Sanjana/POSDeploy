@@ -2,8 +2,8 @@ import type { FastifyInstance } from 'fastify';
 import { deploySqlText } from '../services/deploy.service.js';
 import { parseBossInstructions } from '../services/instruction-parser.service.js';
 import { fetchTableSchemaFromPos } from '../services/metadata.service.js';
-import { DEFAULT_DATABASE_NAME, isPosPasswordConfigured } from '../services/settings.service.js';
 
+const DEFAULT_DATABASE_NAME = 'POS_SOLUTION';
 async function resolveSchema(tableName: string, database: string, posId?: number) {
   const schema = await fetchTableSchemaFromPos(database, tableName, posId);
   return schema.columns;
@@ -27,14 +27,11 @@ export async function instructionsRoutes(app: FastifyInstance) {
 
     try {
       let schema_columns;
-      if (isPosPasswordConfigured()) {
-        try {
-          schema_columns = await resolveSchema(table_name.trim(), dbName, pos_id);
-        } catch (err) {
-          return reply.status(400).send({
-            error: err instanceof Error ? err.message : 'Failed to load table schema from POS',
-          });
-        }
+      try {
+        schema_columns = await resolveSchema(table_name.trim(), dbName, pos_id);
+      } catch (err) {
+        // Soft fail if POS machine isn't connected or valid, just fallback to manual mapping
+        console.warn('Failed to load table schema from POS:', err);
       }
 
       return parseBossInstructions(text, { table_name: table_name.trim(), schema_columns });
@@ -65,11 +62,6 @@ export async function instructionsRoutes(app: FastifyInstance) {
       return reply.status(400).send({ error: 'Select a table first' });
     }
 
-    if (!isPosPasswordConfigured()) {
-      return reply.status(400).send({
-        error: 'POS password is not set. Go to POS Password Setting first.',
-      });
-    }
 
     if (deploy && (!pos_ids || (pos_ids !== 'all' && pos_ids.length === 0))) {
       return reply.status(400).send({ error: 'Select at least one POS machine' });

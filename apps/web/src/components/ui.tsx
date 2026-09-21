@@ -6,12 +6,14 @@ export function PageHeader({ title, description, action }: {
   action?: ReactNode;
 }) {
   return (
-    <div className="flex items-start justify-between mb-8">
-      <div>
-        <h2 className="text-2xl font-bold text-slate-900">{title}</h2>
+    <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-4 mb-8">
+      <div className="flex-1 min-w-0 pr-4">
+        <h2 className="text-2xl font-bold text-slate-900 truncate">{title}</h2>
         {description && <p className="text-slate-500 mt-1">{description}</p>}
       </div>
-      {action}
+      <div className="shrink-0">
+        {action}
+      </div>
     </div>
   );
 }
@@ -77,10 +79,10 @@ export function Badge({ status }: { status: string }) {
 
 export function StatCard({ label, value, sub }: { label: string; value: number | string; sub?: string }) {
   return (
-    <Card className="p-5">
-      <p className="text-sm text-slate-500">{label}</p>
-      <p className="text-3xl font-bold text-slate-900 mt-1">{value}</p>
-      {sub && <p className="text-xs text-slate-400 mt-1">{sub}</p>}
+    <Card className="p-5 min-w-0">
+      <p className="text-sm text-slate-500 truncate" title={label}>{label}</p>
+      <p className="text-3xl font-bold text-slate-900 mt-1 truncate" title={String(value)}>{value}</p>
+      {sub && <p className="text-xs text-slate-400 mt-1 truncate" title={sub}>{sub}</p>}
     </Card>
   );
 }
