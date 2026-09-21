@@ -4,7 +4,7 @@ import type {
   DashboardStats,
   DataTypeOption,
   DeployJob,
-  PosCredentialsPublic,
+
   PosMachine,
   SchemaDeployResponse,
   SchemaTable,
@@ -115,4 +115,24 @@ export const api = {
     request<TableSchemaResponse>(
       `/metadata/table-schema?database=${encodeURIComponent(database)}&table=${encodeURIComponent(table)}${posId ? `&pos_id=${posId}` : ''}`
     ),
+
+  uploadDebug: (file: File) => {
+    const formData = new FormData();
+    formData.append('file', file);
+    return fetch('/api/debug/upload', {
+      method: 'POST',
+      body: formData,
+    }).then(async (r) => {
+      if (!r.ok) {
+        const text = await r.text();
+        throw new Error(text);
+      }
+      return r.json() as Promise<{ success: boolean; filename: string }>;
+    });
+  },
+  deployDebug: (body: { filename: string; pos_ids: number[] | 'all' }) =>
+    request<{ results: { pos_id: number; pos_name: string; success: boolean; error?: string }[] }>('/debug/deploy', {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
 };

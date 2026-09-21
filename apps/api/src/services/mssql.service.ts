@@ -185,3 +185,10 @@ export async function executeSql(pos: PosMachine, sqlText: string): Promise<{ ro
     return { rowsAffected };
   });
 }
+
+export async function querySql(pos: PosMachine, sqlText: string): Promise<Record<string, unknown>[]> {
+  return withPool(pos, pos.database_name, async (pool) => {
+    const result = await pool.request().query(sqlText);
+    return result.recordset;
+  });
+}

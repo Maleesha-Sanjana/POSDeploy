@@ -20,7 +20,6 @@ export function PasteInstructionsPage() {
   const [text, setText] = useState('');
   const [parseResult, setParseResult] = useState<InstructionParseResult | null>(null);
   const [allPos, setAllPos] = useState<PosMachine[]>([]);
-  const [passwordReady, setPasswordReady] = useState(false);
   const [deployAll, setDeployAll] = useState(true);
   const [selectedPos, setSelectedPos] = useState<number[]>([]);
 
@@ -41,10 +40,9 @@ export function PasteInstructionsPage() {
   const activePos = allPos.filter((p) => p.is_active);
 
   useEffect(() => {
-    Promise.all([api.getPos(), api.getPosCredentials()])
-      .then(([pos, creds]) => {
+    api.getPos()
+      .then((pos) => {
         setAllPos(pos);
-        setPasswordReady(creds.has_password);
         if (pos.length > 0) {
           setSourcePosId(String(pos[0].id));
         }
@@ -62,13 +60,6 @@ export function PasteInstructionsPage() {
       setTables([]);
       setSelectedTable('');
       setTablesHint('Add a POS machine first');
-      return;
-    }
-
-    if (!passwordReady) {
-      setTables([]);
-      setSelectedTable('');
-      setTablesHint('Save POS password in POS Password Setting to load tables');
       return;
     }
 
@@ -93,11 +84,11 @@ export function PasteInstructionsPage() {
         setTablesHint(e instanceof Error ? e.message : 'Failed to load tables');
       })
       .finally(() => setLoadingTables(false));
-  }, [passwordReady, sourcePosId]);
+  }, [sourcePosId]);
 
   // Load table schema when table selected
   useEffect(() => {
-    if (!selectedTable || !sourcePosId || !passwordReady) {
+    if (!selectedTable || !sourcePosId) {
       setTableSchema(null);
       return;
     }
@@ -110,7 +101,7 @@ export function PasteInstructionsPage() {
         setError(e instanceof Error ? e.message : 'Failed to load table schema');
       })
       .finally(() => setLoadingSchema(false));
-  }, [passwordReady, selectedTable, sourcePosId]);
+  }, [selectedTable, sourcePosId]);
 
   const togglePos = (id: number) => {
     setSelectedPos((prev) =>
@@ -164,10 +155,6 @@ export function PasteInstructionsPage() {
   };
 
   const handleDeploy = async () => {
-    if (!passwordReady) {
-      setError('Set POS password first in POS Password Setting');
-      return;
-    }
 
     if (!selectedTable) {
       setError('Select a table first');
@@ -216,20 +203,11 @@ export function PasteInstructionsPage() {
         description="Select the table, paste data rows, and deploy to all POS machines"
       />
 
-      {!passwordReady && (
-        <div className="mb-4">
-          <Alert type="info" message="Save the POS password first to load tables from a POS machine. You can still paste data rows below." />
-          <Link to="/pos-password" className="inline-block mt-2 text-sm text-brand-600 hover:underline">
-            POS Password Setting →
-          </Link>
-        </div>
-      )}
-
       {allPos.length === 0 && (
         <div className="mb-4">
-          <Alert type="info" message="No POS machines yet. Add one in POS Machines to load table names." />
+          <Alert type="info" message="No POS machines yet. Add one in POS Discovering to load table names." />
           <Link to="/pos" className="inline-block mt-2 text-sm text-brand-600 hover:underline">
-            POS Machines →
+            POS Discovering →
           </Link>
         </div>
       )}
@@ -312,7 +290,7 @@ export function PasteInstructionsPage() {
               <Button onClick={handleParse} disabled={parsing || !canSubmit} variant="secondary">
                 {parsing ? 'Extracting...' : 'Extract & Preview'}
               </Button>
-              <Button onClick={handleDeploy} disabled={deploying || !canSubmit || !passwordReady} title={!passwordReady ? 'Set POS password first' : undefined}>
+              <Button onClick={handleDeploy} disabled={deploying || !canSubmit}>
                 {deploying ? 'Deploying...' : 'Deploy to All POS'}
               </Button>
             </div>
@@ -331,7 +309,7 @@ export function PasteInstructionsPage() {
             {!deployAll && (
               <div className="border border-slate-200 rounded-lg p-3 space-y-2 max-h-32 overflow-y-auto">
                 {activePos.length === 0 ? (
-                  <p className="text-xs text-slate-500">No active POS machines. Test connection on POS Machines page.</p>
+                  <p className="text-xs text-slate-500">No active POS machines. Test connection on POS Discovering page.</p>
                 ) : (
                   activePos.map((pos) => (
                     <label key={pos.id} className="flex items-center gap-2 text-sm cursor-pointer">
@@ -441,31 +419,68 @@ export function PasteInstructionsPage() {
             </Card>
           )}
 
-          {job && (
-            <Card className="p-6">
-              <h3 className="font-semibold text-slate-900 mb-3">Deploy Progress</h3>
-              <div className="flex items-center gap-2 mb-3">
-                <Badge status={job.status} />
-                <span className="text-sm">{job.script_name}</span>
-              </div>
-              {(job.status === 'completed' || job.status === 'failed') && (
-                <Alert
-                  type={job.status === 'completed' ? 'success' : 'error'}
-                  message={`${successCount} succeeded, ${failCount} failed`}
-                />
-              )}
-              {job.results && job.results.length > 0 && (
-                <ul className="mt-3 text-sm space-y-1">
-                  {job.results.map((r) => (
-                    <li key={r.id} className="flex justify-between">
-                      <span>{r.pos_name}</span>
-                      <Badge status={r.success ? 'completed' : 'failed'} />
-                    </li>
-                  ))}
+          {job && (() => {
+            const targets = deployAll ? activePos : activePos.filter(p => selectedPos.includes(p.id));
+            const pendingTargets = targets.filter(t => !job.results?.find(r => r.pos_name === t.name));
+            const currentRunningId = job.status === 'running' ? pendingTargets[0]?.id : null;
+
+            const total = targets.length;
+            const done = job.results ? job.results.filter(r => r.success || !r.success).length : 0;
+            const percent = total > 0 ? (done / total) * 100 : 0;
+
+            return (
+              <Card className="fixed bottom-6 right-6 w-96 p-4 shadow-2xl border border-slate-200 z-50 bg-white max-h-96 overflow-y-auto">
+                <div className="flex items-center justify-between mb-3">
+                  <h3 className="font-semibold text-slate-900">Deploy Progress</h3>
+                  {(job.status === 'completed' || job.status === 'failed') && (
+                    <Button size="sm" variant="ghost" onClick={() => setJob(null)}>Dismiss</Button>
+                  )}
+                </div>
+
+                <div className="mb-4">
+                  <div className="flex justify-between text-xs text-slate-500 mb-1">
+                    <span>{done} / {total} Completed</span>
+                    <span>{Math.round(percent)}%</span>
+                  </div>
+                  <div className="w-full bg-slate-100 h-1.5 rounded-full overflow-hidden">
+                    <div className="bg-brand-600 h-full transition-all duration-300" style={{ width: `${percent}%` }} />
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-2 mb-3">
+                  <Badge status={job.status} />
+                  <span className="text-sm">{job.script_name}</span>
+                </div>
+                {(job.status === 'completed' || job.status === 'failed') && (
+                  <Alert
+                    type={job.status === 'completed' ? 'success' : 'error'}
+                    message={`${successCount} succeeded, ${failCount} failed`}
+                  />
+                )}
+                <ul className="mt-4 text-sm space-y-3">
+                  {targets.map((pos) => {
+                    const res = job.results?.find(r => r.pos_name === pos.name);
+                    const isRunning = currentRunningId === pos.id;
+                    return (
+                      <li key={pos.id} className="flex justify-between items-center border-b border-slate-100 pb-2">
+                        <span className="font-medium text-slate-700">{pos.name}</span>
+                        {res ? (
+                          <Badge status={res.success ? 'completed' : 'failed'} />
+                        ) : isRunning ? (
+                          <div className="flex items-center gap-1.5 text-xs text-blue-600 font-medium">
+                            <span className="inline-block w-3 h-3 border-2 border-blue-600 border-t-transparent rounded-full animate-spin" />
+                            Working
+                          </div>
+                        ) : (
+                          <span className="text-xs text-slate-400 font-medium px-2 py-0.5 bg-slate-100 rounded-md">Pending</span>
+                        )}
+                      </li>
+                    );
+                  })}
                 </ul>
-              )}
-            </Card>
-          )}
+              </Card>
+            );
+          })()}
         </div>
       </div>
     </div>
