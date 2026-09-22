@@ -2,11 +2,28 @@ import { getDb, toPublicPos } from '../db/index.js';
 import { testSqlConnection, testTcpConnection } from '../services/mssql.service.js';
 // @ts-ignore
 import findLocalDevices from 'local-devices';
+import { exec } from 'child_process';
+import { promisify } from 'util';
+const execAsync = promisify(exec);
+async function isOnline(ip) {
+    try {
+        const isWin = process.platform === 'win32';
+        const cmd = isWin ? `ping -n 1 -w 1000 ${ip}` : `ping -c 1 -W 1 ${ip}`;
+        await execAsync(cmd);
+        return true;
+    }
+    catch {
+        return false;
+    }
+}
 export async function posRoutes(app) {
     app.get('/api/pos/discover', async () => {
         try {
             const devices = await findLocalDevices();
-            return devices;
+            // Filter out stale ARP entries by actually pinging them
+            const onlineStatus = await Promise.all(devices.map(d => isOnline(d.ip)));
+            const activeDevices = devices.filter((_, idx) => onlineStatus[idx]);
+            return activeDevices;
         }
         catch (err) {
             return { error: 'Failed to discover devices' };
@@ -42,7 +59,10 @@ export async function posRoutes(app) {
         let workingPassword = null;
         let testResult = null;
         const passwordsToTry = explicitPassword ? [explicitPassword] : PASSWORDS_TO_TRY;
-        const tcpOk = await testTcpConnection(posToTest.host);
+        let tcpOk = true;
+        if (!posToTest.host.includes('\\')) {
+            tcpOk = await testTcpConnection(posToTest.host);
+        }
         if (!tcpOk) {
             return reply.status(401).send({
                 error: 'Auto-connect failed. Machine offline or firewall blocking port 1433.',
@@ -62,10 +82,21 @@ export async function posRoutes(app) {
             testResult = result.res;
         }
         catch (err) {
-            testResult = { success: false, message: 'All auto-connect passwords failed' };
+            let errorMessage = 'All auto-connect passwords failed';
+            if (err.name === 'AggregateError' && err.errors && err.errors.length > 0) {
+                errorMessage = err.errors[0].message;
+            }
+            else if (err.message) {
+                errorMessage = err.message;
+            }
+            testResult = { success: false, message: errorMessage };
         }
         if (!workingPassword) {
-            return reply.status(401).send({ error: 'Auto-connect failed. Please enter password manually.', testResult });
+            const isManual = !!explicitPassword;
+            return reply.status(401).send({
+                error: isManual ? `Connection failed: ${testResult.message}` : 'Auto-connect failed. Please enter password manually.',
+                testResult
+            });
         }
         try {
             const result = getDb()
@@ -110,7 +141,10 @@ export async function posRoutes(app) {
         // Otherwise if it's just a rename, try the existing password.
         // If we want it to auto-discover on edit too if the existing fails, we could, but let's try existing first.
         const passwordsToTry = explicitPassword ? [explicitPassword] : [existing.password, ...PASSWORDS_TO_TRY.filter(p => p !== existing.password)];
-        const tcpOk = await testTcpConnection(posToTest.host);
+        let tcpOk = true;
+        if (!posToTest.host.includes('\\')) {
+            tcpOk = await testTcpConnection(posToTest.host);
+        }
         if (!tcpOk) {
             return reply.status(401).send({
                 error: 'Auto-connect failed. Machine offline or firewall blocking port 1433.',
@@ -130,10 +164,21 @@ export async function posRoutes(app) {
             testResult = result.res;
         }
         catch (err) {
-            testResult = { success: false, message: 'All auto-connect passwords failed' };
+            let errorMessage = 'All auto-connect passwords failed';
+            if (err.name === 'AggregateError' && err.errors && err.errors.length > 0) {
+                errorMessage = err.errors[0].message;
+            }
+            else if (err.message) {
+                errorMessage = err.message;
+            }
+            testResult = { success: false, message: errorMessage };
         }
         if (!workingPassword) {
-            return reply.status(401).send({ error: 'Auto-connect failed. Please enter password manually.', testResult });
+            const isManual = !!explicitPassword;
+            return reply.status(401).send({
+                error: isManual ? `Connection failed: ${testResult.message}` : 'Auto-connect failed. Please enter password manually.',
+                testResult
+            });
         }
         getDb()
             .prepare(`

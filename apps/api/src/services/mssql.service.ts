@@ -16,12 +16,22 @@ export interface TableColumnMeta {
 }
 
 function poolConfig(pos: PosMachine, database?: string): sql.config {
+  let server = pos.host;
+  let instanceName: string | undefined = undefined;
+  
+  if (server.includes('\\')) {
+    const parts = server.split('\\');
+    server = parts[0];
+    instanceName = parts[1];
+  }
+
   return {
-    server: pos.host,
+    server,
     database: database ?? pos.database_name,
     user: pos.username,
     password: pos.password,
     options: {
+      instanceName,
       encrypt: false,
       trustServerCertificate: true,
       connectTimeout: 15000,
@@ -43,7 +53,7 @@ async function withPool<T>(
   }
 }
 
-export async function testTcpConnection(host: string, port = 1433, timeoutMs = 5000): Promise<boolean> {
+export async function testTcpConnection(host: string, port = 1433, timeoutMs = 10000): Promise<boolean> {
   return new Promise((resolve) => {
     const socket = new net.Socket();
     let settled = false;
@@ -67,7 +77,11 @@ export async function testTcpConnection(host: string, port = 1433, timeoutMs = 5
 export async function testSqlConnection(pos: PosMachine): Promise<ConnectionTestResult> {
   const start = Date.now();
 
-  const tcpOk = await testTcpConnection(pos.host);
+  let tcpOk = true;
+  if (!pos.host.includes('\\')) {
+    tcpOk = await testTcpConnection(pos.host);
+  }
+  
   if (!tcpOk) {
     return {
       success: false,
@@ -76,6 +90,17 @@ export async function testSqlConnection(pos: PosMachine): Promise<ConnectionTest
   }
 
   try {
+    // 1. First connect to master to ensure the target database exists
+    await withPool(pos, 'master', async (pool) => {
+      await pool.request().query(`
+        IF NOT EXISTS (SELECT name FROM sys.databases WHERE name = '${pos.database_name}')
+        BEGIN
+          CREATE DATABASE [${pos.database_name}];
+        END
+      `);
+    });
+
+    // 2. Now test connection to the actual database
     await withPool(pos, pos.database_name, async (pool) => {
       await pool.request().query('SELECT 1 AS ok');
     });

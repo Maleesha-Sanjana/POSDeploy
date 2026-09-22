@@ -42,11 +42,11 @@ export function DashboardPage() {
         <Card className="p-6">
           <h3 className="font-semibold text-slate-900 mb-4">Quick Start</h3>
           <ol className="space-y-3 text-sm text-slate-600 list-decimal list-inside">
-            <li><Link to="/pos" className="text-brand-600 hover:underline">Add POS machines</Link> by Device Name (POS1, POS2, …)</li>
-            <li><Link to="/paste" className="text-brand-600 hover:underline">Paste boss instructions</Link> (Add record gen_usergroup…)</li>
-            <li><Link to="/schema" className="text-brand-600 hover:underline">Create tables or add columns</Link> in Schema Builder</li>
-            <li><Link to="/scripts" className="text-brand-600 hover:underline">Or create SQL scripts</Link> for data inserts</li>
-            <li><Link to="/deploy" className="text-brand-600 hover:underline">Deploy scripts</Link> / check <Link to="/history" className="text-brand-600 hover:underline">history</Link></li>
+            <li><Link to="/pos" className="text-brand-600 hover:underline font-medium">Discover and Add POS machines</Link> (Auto-scan network for devices)</li>
+            <li><Link to="/debug" className="text-brand-600 hover:underline font-medium">Debug Changing</Link> (Upload Debug.rar to update frontend on all POS)</li>
+            <li><Link to="/paste" className="text-brand-600 hover:underline font-medium">Paste Instructions</Link> (Easily deploy boss instructions like "Add record...")</li>
+            <li><Link to="/schema" className="text-brand-600 hover:underline font-medium">Schema Builder</Link> (Visually create tables or add columns)</li>
+            <li><Link to="/scripts" className="text-brand-600 hover:underline font-medium">Manage Scripts</Link> and <Link to="/history" className="text-brand-600 hover:underline font-medium">View History</Link></li>
           </ol>
         </Card>
 

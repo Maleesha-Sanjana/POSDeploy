@@ -1,12 +1,20 @@
 import net from 'net';
 import sql from 'mssql';
 function poolConfig(pos, database) {
+    let server = pos.host;
+    let instanceName = undefined;
+    if (server.includes('\\')) {
+        const parts = server.split('\\');
+        server = parts[0];
+        instanceName = parts[1];
+    }
     return {
-        server: pos.host,
+        server,
         database: database ?? pos.database_name,
         user: pos.username,
         password: pos.password,
         options: {
+            instanceName,
             encrypt: false,
             trustServerCertificate: true,
             connectTimeout: 15000,
@@ -23,7 +31,7 @@ async function withPool(pos, database, fn) {
         await pool.close();
     }
 }
-export async function testTcpConnection(host, port = 1433, timeoutMs = 5000) {
+export async function testTcpConnection(host, port = 1433, timeoutMs = 10000) {
     return new Promise((resolve) => {
         const socket = new net.Socket();
         let settled = false;
@@ -43,7 +51,10 @@ export async function testTcpConnection(host, port = 1433, timeoutMs = 5000) {
 }
 export async function testSqlConnection(pos) {
     const start = Date.now();
-    const tcpOk = await testTcpConnection(pos.host);
+    let tcpOk = true;
+    if (!pos.host.includes('\\')) {
+        tcpOk = await testTcpConnection(pos.host);
+    }
     if (!tcpOk) {
         return {
             success: false,
@@ -51,6 +62,16 @@ export async function testSqlConnection(pos) {
         };
     }
     try {
+        // 1. First connect to master to ensure the target database exists
+        await withPool(pos, 'master', async (pool) => {
+            await pool.request().query(`
+        IF NOT EXISTS (SELECT name FROM sys.databases WHERE name = '${pos.database_name}')
+        BEGIN
+          CREATE DATABASE [${pos.database_name}];
+        END
+      `);
+        });
+        // 2. Now test connection to the actual database
         await withPool(pos, pos.database_name, async (pool) => {
             await pool.request().query('SELECT 1 AS ok');
         });

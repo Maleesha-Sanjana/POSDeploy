@@ -128,7 +128,7 @@ export function PosPage() {
       }
 
       setAddingDevices(filtered.map(d => ({
-        name: d.name !== '?' ? d.name : d.ip,
+        name: d.name !== '?' && d.name !== d.ip ? d.name : 'Unknown Device',
         ip: d.ip,
         status: 'pending'
       })));
@@ -140,15 +140,13 @@ export function PosPage() {
         filtered.map(async (dev) => {
           setAddingDevices(prev => prev ? prev.map(p => p.ip === dev.ip ? { ...p, status: 'running' } : p) : null);
           try {
-            await api.createPos({ device_name: dev.name !== '?' ? dev.name : dev.ip });
+            await api.createPos({ device_name: dev.name !== '?' && dev.name !== dev.ip ? dev.name : dev.ip });
             addedCount++;
             setAddingDevices(prev => prev ? prev.map(p => p.ip === dev.ip ? { ...p, status: 'completed' } : p) : null);
           } catch (err) {
             const msg = err instanceof Error ? err.message : 'Failed to connect';
             setAddingDevices(prev => prev ? prev.map(p => p.ip === dev.ip ? { ...p, status: 'failed', error: msg } : p) : null);
-            if (msg.toLowerCase().includes('manually')) {
-              manualDevices.push(dev);
-            }
+            manualDevices.push(dev);
           }
         })
       );
@@ -248,7 +246,7 @@ export function PosPage() {
             <p className="text-sm text-slate-600">All reachable POS machines have been automatically added!</p>
           ) : (
             <div>
-              <p className="text-sm text-amber-700 mb-4 font-medium">The following devices were found but require a manual password:</p>
+              <p className="text-sm text-amber-700 mb-4 font-medium">The following devices were found but failed to auto-connect (e.g., custom password required or firewall blocking). You can add them manually:</p>
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
                 {discoveredDevices.map((dev) => (
                   <div key={dev.mac} className="relative flex items-center justify-between p-3 pr-8 border border-slate-200 rounded-lg bg-white shadow-sm">
@@ -260,14 +258,14 @@ export function PosPage() {
                       <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
                     </button>
                     <div className="min-w-0 flex-1 pr-2">
-                      <div className="font-medium text-slate-900 text-sm truncate" title={dev.name !== '?' ? dev.name : dev.ip}>
-                        {dev.name !== '?' ? dev.name : dev.ip}
+                      <div className="font-medium text-slate-900 text-sm truncate" title={dev.name !== '?' && dev.name !== dev.ip ? dev.name : 'Unknown Device'}>
+                        {dev.name !== '?' && dev.name !== dev.ip ? dev.name : 'Unknown Device'}
                       </div>
                       <div className="text-xs text-slate-500 font-mono mt-0.5 truncate">{dev.ip}</div>
                     </div>
                     <Button size="sm" className="shrink-0" onClick={() => {
                       openAdd(true);
-                      setDeviceName(dev.name !== '?' ? dev.name : dev.ip);
+                      setDeviceName(dev.name !== '?' && dev.name !== dev.ip ? dev.name : '');
                     }}>
                       Add Manually
                     </Button>
